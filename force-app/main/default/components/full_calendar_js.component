@@ -1,0 +1,1194 @@
+<apex:component controller="FullCalendarDataService">
+    <apex:attribute name="selectedLocation" type="String" description="for selected location" />
+    <apex:attribute name="selectedTeacher" type="String" description="for selected teacher" />
+    <apex:attribute name="TodayDate" type="String" description="for today date" />
+    <apex:attribute name="customMetaDataConfig" type="Full_Calendar_Configuration__mdt" description="for custom data Configration"
+    />
+    <apex:attribute name="selectedCourse" type="String" description="for selected course" />
+
+    <apex:stylesheet value="{!URLFOR($Resource.jquery_date_picker, 'jquery-ui.min.css')}" />
+    <apex:stylesheet value="{!URLFOR($Resource.calendar_resources, '/packages/core/main.css')}" />
+    <apex:stylesheet value="{!URLFOR($Resource.calendar_resources, '/packages/daygrid/main.css')}" />
+    <apex:stylesheet value="{!URLFOR($Resource.calendar_resources, '/packages/timegrid/main.css')}" />
+
+    <apex:includeScript value="{!URLFOR($Resource.jquery_date_picker, 'jqueryJs.js')}" />
+    <apex:includeScript value="{!URLFOR($Resource.jquery_date_picker, 'jquery-ui.min.js')}" />
+
+    <apex:includeScript value="{!URLFOR($Resource.calendar_resources, '/packages/core/main.js')}" />
+    <apex:includeScript value="{!URLFOR($Resource.calendar_resources, '/packages/interaction/main.js')}" />
+    <apex:includeScript value="{!URLFOR($Resource.calendar_resources, '/packages/daygrid/main.js')}" />
+    <apex:includeScript value="{!URLFOR($Resource.calendar_resources, '/packages/timegrid/main.js')}" />
+    <apex:includeScript value="{!URLFOR($Resource.calendar_resources, '/packages-premium/resource-common/main.js')}" />
+    <apex:includeScript value="{!URLFOR($Resource.calendar_resources, '/packages-premium/resource-daygrid/main.js')}" />
+    <apex:includeScript value="{!URLFOR($Resource.calendar_resources, '/packages-premium/resource-timegrid/main.js')}" />
+    <style>
+        .slds-scope a,
+        .slds-scope a:hover {
+            color: #FFF;
+            text-decoration: none;
+        }
+
+        .fc-event,
+        .fc-event-dot {
+            background-color: #3788d8;
+        }
+
+        .fc-button-primary {
+            color: #fff !important;
+        }
+
+        .fc-resource-cell {
+            padding: 5px !important;
+        }
+
+        .slds-scope .slds-page-header {
+            border-radius: 0px;
+            box-shadow: 0px 0px 0px 0px;
+            background: #f3f2f2;
+        }
+
+        .slds-button_neutral {
+            background-color: {
+                !customMetaDataConfig.Mode_Button_Color__c
+            }
+        }
+
+        .slds-slds-button_brand {
+            background-color: {
+                !customMetaDataConfig.Selected_Mode_Button_Color__c
+            }
+        }
+
+        .fc-button-active {
+            background-color: {
+                !customMetaDataConfig.Selected_View_Button_Color__c
+            }
+            !important
+        }
+
+        .fc-button-primary {
+            background-color: {
+                !customMetaDataConfig.View_Button_Color__c
+            }
+        }
+
+        .fc-nonbusiness {
+            background-color: {
+                !customMetaDataConfig.Non_Business_Hours_Color__c
+            }
+            ;
+            opacity: 0.5;
+        }
+
+        .slds-scope .slds-input-has-icon .slds-input__icon {
+            height: .875rem !important;
+        }
+
+        .fc-button-group,
+        .fc-toolbar button {
+            font-size: 14px !important;
+            text-transform: capitalize !important;
+            height: 2.4em !important;
+        }
+
+        .fc-state-default,
+        .fc-state-hover {
+            padding-left: 1rem !important;
+            padding-right: 1rem !important;
+            text-align: center !important;
+            vertical-align: middle !important;
+            border: 1px solid rgb(221, 219, 218) !important;
+            transition: border .15s linear !important;
+            background-color: rgba(255, 255, 255, 1.0) !important;
+            border-color: rgb(177, 166, 166) !important;
+            color: rgb(0, 0, 0) !important;
+            background-image: none !important;
+            text-transform: uppercase !important;
+        }
+
+        .fc-resizer {
+            display: none !important;
+        }
+
+        .custom-slds-alert {
+            background-color: #1b5297;
+            font-weight: 400;
+        }
+    </style>
+
+    <script>       
+        var calendar;
+        var events = [];
+        var resources = [];
+        var workingHoursArr = [];
+        var teacherWorkingHour;
+        var selectedDate = '{!TodayDate}';
+        var startDate = '';
+        var endDate = '';
+        var selectedViewType = 'resourceTimeGridDay';
+        var curretnDayMinTime;
+        var currentDayMaxTime;
+        var dayName;
+        var selectedModeView = '';
+        var sessionEvent;
+        var selectedClassValue = '';
+        var selectedCourseValue = '';
+        var selectedResourceValue = '';
+        var selectedResourceType = '';
+        var isModeViewChanged = false;
+        var isComeFromDatePicker = false;
+        var calendarInfo;
+        var isCalendarInRescheduleMode = false;
+        var rescheduleModeName = '';
+        var dateEvent;
+        var difference_In_Days;
+        //classname.addEventListener('click', myFunction(), false);
+        document.addEventListener('DOMContentLoaded', function () {
+            getSearchCriteria();
+            createResources();
+            createWorkingHours('{!selectedLocation}', false);
+            createTeacherWorkingHour('{!selectedLocation}');
+            fetchSessionsFromSF('{!selectedTeacher}', '{!selectedLocation}');
+            manageResourceSelectList();
+            console.log('customMetaDataConfig--> ', '{!customMetaDataConfig.Mode_Button_Color__c}');
+            //refreshCalendar();          
+        });
+
+        function refreshCalendar() {
+
+            var calendarEl = document.getElementById('calendar');
+            console.log('calendarEl ', calendarEl);
+            calendar = new FullCalendar.Calendar(calendarEl, {
+                schedulerLicenseKey: '{!customMetaDataConfig.Scheduler_License_Key__c}',
+                plugins: ['interaction', 'resourceDayGrid', 'resourceTimeGrid'],
+                defaultView: selectedViewType,
+                defaultDate: selectedDate,
+                editable: true,
+                selectable: true,
+                eventLimit: true, // allow "more" link when too many events
+                customButtons: {
+                    dataPicker: {
+                        text: 'Date Picker!',
+                        click: function () {
+                            alert('clicked the custom button!');
+                        }
+                    }
+                },
+                header: {
+                    left: 'prev,dataPicker,next today',
+                    center: 'title',
+                    right: 'resourceTimeGridDay,timeGridWeek,dayGridMonth'
+                },
+                views: {
+                    resourceTimeGridTwoDay: {
+                        type: 'resourceTimeGrid',
+                        duration: { days: 2 },
+                        buttonText: '2 days',
+                    }
+                },
+                businessHours: createWholeWeekTeacherWorkingHours(document.querySelector('.select-teacher').value),
+                height: "auto",
+                //// uncomment this line to hide the all-day slot
+                allDaySlot: false,
+
+                resources: resources,
+                events: events,
+                select: function (arg) {
+                    console.log(
+                        'select',
+                        arg.startStr,
+                        arg.endStr,
+                        arg.resource ? arg.resource.id : '(no resource)'
+                    );
+                },
+                dateClick: function (arg) {
+                    dateEvent = arg;
+                    if (isCalendarInRescheduleMode == true) {
+                        document.querySelector(".confirmation-model").classList.remove('slds-hide');
+                    }
+                    //rescheduleDate();
+                    console.log(arg);
+                    console.log(
+                        'dateClick',
+                        arg.date,
+                        arg.resource ? arg.resource.id : '(no resource)'
+                    );
+                },
+                eventClick: function (info) {
+                    calendarInfo = info;
+                    if (isCalendarInRescheduleMode == true && rescheduleModeName == 'reschedule-student') {
+                        console.log(calendarInfo);
+                        console.log(selectedStudentsId);
+                        handleEventClick();
+                    } else {
+                        showSessionDetailModal();
+                    }
+                    // change the border color just for fun
+                    //info.el.style.borderColor = 'red';
+                },
+                editable: true,
+                eventDrop: function (info) {
+                    calendarInfo = info;
+                    isEventInWorkingHours();
+                    //showConfirmationModel();
+                },
+                minTime: curretnDayMinTime,
+                maxTime: currentDayMaxTime,
+            });
+            console.log(calendarEl);
+            calendar.render();
+
+            document.querySelector(".fc-next-button").addEventListener('click', function () {
+                handleChangeCalendarDay();
+                console.log(calendar.getDate());
+            });
+
+            document.querySelector(".fc-prev-button").addEventListener('click', function () {
+                handleChangeCalendarDay();
+            });
+
+            document.querySelector(".fc-today-button").addEventListener('click', function () {
+                handleChangeCalendarDay();
+            });
+
+            document.querySelector(".fc-resourceTimeGridDay-button").addEventListener('click', function () {
+                selectedViewType = 'resourceTimeGridDay';
+                console.log(selectedViewType);
+                handleChangeCalendarDay();
+            });
+
+            document.querySelector(".fc-timeGridWeek-button").addEventListener('click', function () {
+                console.log(calendar.view);
+                selectedViewType = 'timeGridWeek';
+                handleChangeCalendarDay();
+            });
+
+            document.querySelector(".fc-dayGridMonth-button").addEventListener('click', function () {
+                selectedViewType = 'dayGridMonth';
+                handleChangeCalendarDay();
+            });
+
+            $('.fc-dataPicker-button').after('<div class="slds-form-element__control slds-input-has-icon slds-input-has-icon_right" > <input type="text" id="fullCalendarDate" class="slds-input" value="' + selectedDate + '" onchange="getDateFromDatePicker(this);" /> <button class="slds-button slds-button_icon slds-input__icon slds-input__icon_right" title="Select a date" onclick="showDatePicker();return false;" style="z-index:1"><svg class="slds-button__icon" aria-hidden="true" style="position: absolute;width: 2rem; height: 1.7rem;"><use xlink:href="{!URLFOR($Asset.SLDS, "assets/icons/standard-sprite/svg/symbols.svg#event")}"></use></svg><span class="slds-assistive-text">Select a date</span></button>');
+            $('.fc-dataPicker-button').remove();
+            $("#fullCalendarDate").datepicker({
+                numberOfMonths: 2,
+                showButtonPanel: false,
+                dateFormat: "yy-mm-dd"
+            });
+            $("#fullCalendarDate").datepicker("option", "showAnim", "slideDown");
+        }
+
+        function showDatePicker() {
+            $('#fullCalendarDate').datepicker("show");
+        }
+
+        function handleTeacherChange() {
+            let selectTeacher = document.getElementsByClassName('select-teacher')[0].value;
+            let selectLocation = document.getElementsByClassName('select-location')[0].value;
+            if (selectedViewType == 'timeGridWeek' || selectedDate != '{!TodayDate}' || selectedViewType == 'dayGridMonth') {
+                handleChangeCalendarDay();
+            } else {
+                if (selectedModeView == 'Resource') {
+                    fetechSessionByResourceView(selectLocation, selectTeacher);
+                } else {
+                    fetchSessionsFromSF(selectTeacher, selectLocation);
+                }
+            }
+            createResources();
+            console.log('handle change--' + selectTeacher);
+
+            //debugger;
+
+        }
+
+        function handleChangeCalendarDay() {
+            console.log('calendar--', calendar);
+            let selectTeacher = document.querySelector('.select-teacher').value;
+            let selectLocation = document.querySelector('.select-location').value;
+            let calendarView = calendar.view;
+            if (selectedViewType == 'timeGridWeek') {
+                startDate = createDateFormat(calendarView.activeStart);
+                endDate = createDateFormat(calendarView.activeEnd);
+                selectedDate = startDate;
+                console.log(calendar.getDate().getDay() + ' === ' + startDate + ' === ' + endDate + ' === ' + selectedDate);
+                getCurrentDayWorkingHours(convertDay(calendar.getDate().getDay()));
+                if (selectedModeView == 'Teacher') {
+                    if (selectTeacher == 'All_Teachers' && document.querySelector('.select-teacher').length > 1) {
+                        document.querySelector('.select-teacher').value = selectTeacher = document.querySelector('.select-teacher').options[1].value;
+                    }
+                    if (selectTeacher != 'All_Teachers' && document.querySelector('.select-teacher').length > 1) {
+                        fetechSessionByWeekFromSF(selectTeacher, selectLocation);
+                    }
+                } else {
+                    if (selectedModeView == 'Resource') {
+                        fetechSessionResourceViewByWeekFromSF(selectLocation, selectTeacher);
+                    } else {
+                        fetechSessionByWeekFromSF(selectTeacher, selectLocation);
+                    }
+                }
+            } else if (selectedViewType == 'dayGridMonth') {
+                startDate = createDateFormat(calendarView.currentStart);
+                endDate = createDateFormat(calendarView.currentEnd);
+                selectedDate = startDate;
+                if (selectedModeView == 'Resource') {
+                    fetechSessionResourceViewByWeekFromSF(selectLocation, selectTeacher);
+                } else {
+                    fetechSessionByWeekFromSF(selectTeacher, selectLocation);
+                }
+            } else {
+                if (isComeFromDatePicker == false) {
+                    selectedDate = createDateFormat(calendar.getDate());
+                    getCurrentDayWorkingHours(convertDay(calendar.getDate().getDay()));
+                } else {
+                    isComeFromDatePicker = false;
+                }
+                if (selectedModeView == 'Resource') {
+                    fetechSessionByResourceView(selectLocation, selectTeacher);
+                } else {
+                    fetchSessionsByDateFromSF(selectTeacher, selectLocation);
+                }
+
+            }
+        }
+
+        function fetchSessionsFromSF(selectTeacher, selectLocation) {
+            document.getElementById("spinner").style.display = "block";
+            Visualforce.remoting.Manager.invokeAction(
+                '{!$RemoteAction.FullCalendarDataService.fetchSessions}',
+                selectTeacher, selectLocation, selectedClassValue, selectedCourseValue,
+                function (result, event) {
+                    console.log(event.status);
+                    console.log('result--> ', result);
+                    document.getElementById("spinner").style.display = "none";
+                    if (event.status) {
+                        sessionEvent = result;
+                        createSessionAsEvents();
+                        //refreshCalendar(data);
+                        if (calendar) {
+                            calendar.destroy();
+                            refreshCalendar();
+                        } else
+                            refreshCalendar();
+                    }
+                },
+                { escape: true }
+            );
+        }
+
+        function fetchSessionsByDateFromSF(selectTeacher, selectLocation) {
+            document.getElementById("spinner").style.display = "block";
+            Visualforce.remoting.Manager.invokeAction(
+                '{!$RemoteAction.FullCalendarDataService.fetchSessionsByDate}',
+                selectTeacher, selectLocation, selectedDate, selectedClassValue, selectedCourseValue,
+                function (result, event) {
+                    document.getElementById("spinner").style.display = "none";
+                    console.log(event.status);
+                    console.log('result--> ', result);
+                    if (event.status) {
+                        sessionEvent = result;
+                        createSessionAsEvents();
+                        //refreshCalendar(data);
+                        if (calendar) {
+                            calendar.destroy();
+                            refreshCalendar();
+                        } else {
+                            refreshCalendar();
+                        }
+                    }
+                },
+                { escape: true }
+            );
+        }
+
+        function fetechSessionByWeekFromSF(selectTeacher, selectLocation) {
+            document.getElementById("spinner").style.display = "block";
+            console.log('selectedClassValue  ->' + selectedClassValue);
+            Visualforce.remoting.Manager.invokeAction(
+                '{!$RemoteAction.FullCalendarDataService.fetchSessionsByWeek}',
+                selectTeacher, selectLocation, startDate, endDate, selectedClassValue, selectedCourseValue,
+                function (result, event) {
+                    document.getElementById("spinner").style.display = "none";
+                    console.log(event.status);
+                    console.log('result--> ', result);
+                    console.log('selectedViewType  ' + selectedViewType);
+                    if (event.status) {
+                        sessionEvent = result;
+                        createSessionAsEvents();
+                        //refreshCalendar(data);
+                        if (calendar) {
+                            calendar.destroy();
+                            refreshCalendar();
+                        } else {
+                            refreshCalendar();
+                        }
+                    }
+                },
+                { escape: true }
+            );
+        }
+
+        function fetechSessionByResourceView(selectedLocation, selectedTeacher) {
+            console.log('selectedResourceValue  ', selectedResourceValue);
+            console.log('selectedResourceType  ', selectedResourceType);
+            document.getElementById("spinner").style.display = "block";
+            Visualforce.remoting.Manager.invokeAction(
+                '{!$RemoteAction.FullCalendarDataService.getSessionResources}',
+                selectedResourceValue, selectedLocation, selectedTeacher, selectedDate, selectedResourceType,
+                function (result, event) {
+                    document.getElementById("spinner").style.display = "none";
+                    console.log(event.status);
+                    console.log('resultSession Resource --> ', result);
+                    console.log('selectedViewType  ' + selectedViewType);
+                    if (event.status) {
+                        sessionEvent = result;
+                        createSessionAsEvents();
+                        if (calendar) {
+                            calendar.destroy();
+                            refreshCalendar();
+                        } else {
+                            refreshCalendar();
+                        }
+
+                    }
+                },
+                { escape: true }
+            );
+        }
+
+        function fetechSessionResourceViewByWeekFromSF(selectedLocation, selectedTeacher) {
+            console.log('selectedResourceValue  ', selectedResourceValue);
+            console.log('selectedResourceType  ', selectedResourceType);
+            document.getElementById("spinner").style.display = "block";
+            Visualforce.remoting.Manager.invokeAction(
+                '{!$RemoteAction.FullCalendarDataService.getSessionResourcesByWeek}',
+                selectedLocation, selectedTeacher, selectedResourceValue, startDate, endDate, selectedResourceType,
+                function (result, event) {
+                    document.getElementById("spinner").style.display = "none";
+                    console.log(event.status);
+                    console.log('resultSession Resource --> ', result);
+                    console.log('selectedViewType  ' + selectedViewType);
+                    if (event.status) {
+                        sessionEvent = result;
+                        createSessionAsEvents();
+                        if (calendar) {
+                            calendar.destroy();
+                            refreshCalendar();
+                        } else {
+                            refreshCalendar();
+                        }
+
+                    }
+                },
+                { escape: true }
+            );
+        }
+
+        function setNewEventTimeFromSf(eventId, parentId, startTime, currentDate, needToRefresh) {
+            document.getElementById("spinner").style.display = "block";
+            Visualforce.remoting.Manager.invokeAction(
+                '{!$RemoteAction.FullCalendarDataService.setNewSessionTiming}',
+                eventId, parentId, startTime, currentDate,
+                function (result, event) {
+                    document.getElementById("spinner").style.display = "none";
+                    console.log(event.status);
+                    console.log('Event --> ', result);
+                    if (needToRefresh) {
+                        handleChangeCalendarDay();
+                    }
+                },
+                { escape: true }
+            );
+        }
+
+        function setNewEventTimeForCurrentAndUpcomingDays(eventId, startTime) {
+            document.getElementById("spinner").style.display = "block";
+            Visualforce.remoting.Manager.invokeAction(
+                '{!$RemoteAction.FullCalendarDataService.setNewTimeForAllSession}',
+                eventId, startTime,
+                function (result, event) {
+                    document.getElementById("spinner").style.display = "none";
+                    console.log(event.status);
+                    console.log('Event --> ', result);
+                },
+                { escape: true }
+            );
+        }
+
+        function setNewDateTimeForWholeSessionFromSF(eventId, startTime, previousDay, needToRefresh) {
+            document.getElementById("spinner").style.display = "block";
+            console.log('============================');
+            console.log(eventId);
+            console.log(startTime);
+            console.log(previousDay);
+            console.log(needToRefresh);
+            console.log(difference_In_Days);
+            console.log('================');
+
+            Visualforce.remoting.Manager.invokeAction(
+                '{!$RemoteAction.FullCalendarDataService.setNewDateTimeForCurrentAndUpComingSession}',
+                eventId, startTime, difference_In_Days, previousDay,
+                function (result, event) {
+                    document.getElementById("spinner").style.display = "none";
+                    console.log(event.status);
+                    console.log('Event --> ', result);
+                    if (needToRefresh) {
+                        handleChangeCalendarDay();
+                    }
+                },
+                { escape: true }
+            );
+        }
+
+        function setNewSessionForStudentFromSF(sessionId) {
+            document.getElementById("spinner").style.display = "block";
+            Visualforce.remoting.Manager.invokeAction(
+                '{!$RemoteAction.FullCalendarDataService.rescheduleSessionForStudent}',
+                selectedStudentsId, sessionId,
+                function (result, event) {
+                    document.getElementById("spinner").style.display = "none";
+                    console.log(event.status);
+                    console.log('Event --> ', result);
+                },
+                { escape: true }
+            );
+        }
+
+        function checkStudentResourceIsExistFormSF(sessionId) {
+            document.getElementById("spinner").style.display = "block";
+            Visualforce.remoting.Manager.invokeAction(
+                '{!$RemoteAction.FullCalendarDataService.studentIsExistsForSession}',
+                selectedStudentsId, sessionId,
+                function (result, event) {
+                    document.getElementById("spinner").style.display = "none";
+                    console.log(event.status);
+                    console.log('Event --> ', result);
+                    return result;
+                },
+                { escape: true }
+            );
+        }
+
+        function rescheduleAllStudentResourceForSession(oldDay, newDay) {
+            document.getElementById("spinner").style.display = "block";
+            Visualforce.remoting.Manager.invokeAction(
+                '{!$RemoteAction.FullCalendarDataService.updateStudenSessionsInAllSessions}',
+                oldDay, newDay, selectedAccountId,
+                function (result, event) {
+                    document.getElementById("spinner").style.display = "none";
+                    console.log(event.status);
+                    console.log('Event --> ', result);
+                    //return result;
+                },
+                { escape: true }
+            );
+
+        }
+
+        function createDateFormat(currentDate) {
+            let month = '' + (currentDate.getMonth() + 1);
+            let day = '' + currentDate.getDate();
+            let year = currentDate.getFullYear();
+
+            if (month.length < 2)
+                month = '0' + month;
+            if (day.length < 2)
+                day = '0' + day;
+
+            return [year, month, day].join('-');
+        }
+
+        function createTimeFormat(currentDate) {
+            let hour = currentDate.getHours();
+            let minute = currentDate.getMinutes();
+            let second = currentDate.getSeconds();;
+            return [hour, minute, second].join(':');
+        }
+
+        function msToTime(duration, needSeconds) {
+            var milliseconds = parseInt((duration % 1000) / 100)
+                , seconds = parseInt((duration / 1000) % 60)
+                , minutes = parseInt((duration / (1000 * 60)) % 60)
+                , hours = parseInt((duration / (1000 * 60 * 60)) % 24);
+
+            hours = (hours < 10) ? "0" + hours : hours;
+            minutes = (minutes < 10) ? "0" + minutes : minutes;
+            seconds = (seconds < 10) ? "0" + seconds : seconds;
+            if (needSeconds == true) {
+                return hours + ":" + minutes;
+            }
+            return hours + ":" + minutes + ":" + seconds;
+        }
+
+        function getLongDate(currentDate) {
+            let day = '' + currentDate.getDate();
+            let year = currentDate.getFullYear();
+            let weekDay = convertDay(currentDate.getDay());
+            let month = convertMonth(currentDate.getMonth());
+            if (day.length < 2)
+                day = '0' + day;
+            return weekDay.substr(0, 3) + ', ' + month.substr(0, 3) + ' ' + day + ' ' + year;
+        }
+
+        function timeConvert(time) {
+            // Check correct time format and split into components
+            time = time.toString().match(/^([01]\d|2[0-3])(:)([0-5]\d)(:[0-5]\d)?$/) || [time];
+
+            if (time.length > 1) { // If time format correct
+                time = time.slice(1);  // Remove full string match value
+                time[5] = +time[0] < 12 ? 'AM' : 'PM'; // Set AM/PM
+                time[0] = +time[0] % 12 || 12; // Adjust hours
+            }
+            return time.join(''); // return adjusted time or original string
+        }
+
+        function createSessionAsEvents() {
+            console.log('sessionEvent  ', sessionEvent);
+            var seesionArr = [];
+            events = [];
+            if (selectedModeView != 'Resource') {
+                seesionArr = sessionEvent.sessionModelList;
+                console.log('seesionArr = ', seesionArr);
+                console.log('events Before -> ', events);
+                if (seesionArr) {
+                    seesionArr.forEach(element => {
+                        let sessionDate = new Date(element.Session_Date__c);
+                        if (selectedModeView == 'Location') {
+                            let locationId = document.querySelector('.select-location').value;
+                            events.push({
+                                id: element.Id,
+                                resourceId: locationId,
+                                start: createDateFormat(sessionDate) + 'T' + msToTime(element.Start_Time__c),
+                                end: createDateFormat(sessionDate) + 'T' + msToTime(element.End_Time__c),
+                                title: element.Name + ' - ' + element.Teacher__r.Name,
+                                color: element.Event_Color__c,
+                                extendedProps: {
+                                    'class': element.Class__c,
+                                    'teacher': element.Teacher__c
+                                },
+                            });
+                        } else if (selectedModeView == 'Teacher') {
+                            events.push({
+                                id: element.Id,
+                                resourceId: element.Teacher__c,
+                                start: createDateFormat(sessionDate) + 'T' + msToTime(element.Start_Time__c),
+                                end: createDateFormat(sessionDate) + 'T' + msToTime(element.End_Time__c),
+                                title: element.Name,
+                                color: element.Event_Color__c,
+                                extendedProps: {
+                                    'class': element.Class__c,
+                                    'teacher': element.Teacher__c
+                                },
+                            });
+                        }
+
+                    });
+                }
+            } else if (selectedModeView == 'Resource') {
+                seesionArr = sessionEvent.sessionResourceModelList;
+                if (seesionArr) {
+                    seesionArr.forEach(element => {
+                        let sessionDate = new Date(element.Session__r.Session_Date__c);
+                        events.push({
+                            id: element.Id,
+                            resourceId: element.Resource__c,
+                            start: createDateFormat(sessionDate) + 'T' + msToTime(element.Session__r.Start_Time__c),
+                            end: createDateFormat(sessionDate) + 'T' + msToTime(element.Session__r.End_Time__c),
+                            title: element.Session__r.Name + ' - ' + element.Session__r.Teacher__r.Name,
+                            color: element.Session__r.Event_Color__c,
+                        });
+                    });
+                }
+            }
+            console.log('events-> ', events);
+            //calendar.fullCalendar( 'updateEvents', events );
+            // return events;
+        }
+
+        function createResources() {
+            resources = [];
+            let workingHours = [];
+            if (selectedModeView == 'Location') {
+                let locationId = document.querySelector('.select-location').value;
+                let locationValue = document.querySelector('.select-location').selectedOptions[0].label
+                resources.push({ id: locationId, title: locationValue });
+
+            } else if (selectedModeView == 'Teacher') {
+
+                let options = document.querySelector('.select-teacher');
+                let selectedValue = document.querySelector('.select-teacher').value;
+                for (idx of options) {
+                    if (idx.value != 'All_Teachers') {
+
+                        workingHours = createWholeWeekTeacherWorkingHours(idx.value);
+                    }
+                    console.log('workingHours  ', workingHours);
+                    if (workingHours.length == 0) {
+                        workingHours = [];
+                        workingHours.push({
+                            start_time: '00:00:00"',
+                            end_time: '24:00:00"'
+                        });
+                    }
+                    console.log('workingHours  ', workingHours);
+                    if (selectedValue == 'All_Teachers' && idx.value != 'All_Teachers') {
+                        resources.push({
+                            id: idx.value,
+                            title: idx.label,
+                            businessHours: workingHours
+                        });
+                    } else if (idx.value != 'All_Teachers' && selectedValue == idx.value) {
+                        resources.push({
+                            id: idx.value,
+                            title: idx.label,
+                            businessHours: workingHours
+                        });
+                    }
+                }
+            } else if (selectedModeView == 'Resource') {
+                let options = document.querySelector('.select-resource');
+                let selectedValue = document.querySelector('.select-resource').value;
+                for (idx of options) {
+                    if (selectedValue == 'All_Resources' && idx.value != 'All_Resources') {
+                        resources.push({ id: idx.value, title: idx.label });
+                    } else if (idx.value != 'All_Resources' && selectedValue == idx.value) {
+                        resources.push({ id: idx.value, title: idx.label });
+                    }
+                }
+            }
+            console.log('resources ', resources);
+        }
+
+        function createWorkingHours(selectedLocation, flag) {
+            workingHoursArr = [];
+            Visualforce.remoting.Manager.invokeAction(
+                '{!$RemoteAction.FullCalendarDataService.getWorkingHours}',
+                selectedLocation,
+                function (result, event) {
+                    console.log(event.status);
+                    console.log('WorkingHours ', result);
+
+                    result.forEach(ele => {
+                        workingHoursArr.push({
+                            day: ele.Day__c,
+                            startTime: ele.Start_Time__c,
+                            endTime: ele.End_Time__c,
+                        });
+                    });
+                    let currentDate = new Date();
+                    getCurrentDayWorkingHours(convertDay(currentDate.getDay()));
+                    if (flag) {
+                        getResourcesValue();
+                        handleChangeCalendarDay();
+                    }
+                    console.log(workingHoursArr);
+                },
+                { escape: true }
+            );
+        }
+
+        function convertDay(noOfDay) {
+            let days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+            return days[noOfDay];
+        }
+
+        function convertMonth(noOfMonth) {
+            let months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+            return months[noOfMonth];
+        }
+
+        function createTeacherWorkingHour(selectedLocation) {
+            teacherWorkingHour = [];
+            Visualforce.remoting.Manager.invokeAction(
+                '{!$RemoteAction.FullCalendarDataService.getTeacherWorkingHours}',
+                selectedLocation,
+                function (result, event) {
+                    console.log(event.status);
+                    console.log('TeacherHOurs --> ', result);
+                    result.forEach(ele => {
+                        teacherWorkingHour.push({
+                            'id': ele.Teacher__c,
+                            'day': ele.Day__c,
+                            'start_time': ele.Start_Time__c,
+                            'end_time': ele.End_Time__c
+                        });
+                    });
+                },
+                { escape: true }
+            );
+        }
+
+        function getCurrentDayWorkingHours(dayName) {
+            console.log('dayName  -- ' + dayName);
+            curretnDayMinTime = '';
+            currentDayMaxTime = '';
+            if (selectedViewType == 'timeGridWeek') {
+                curretnDayMinTime = workingHoursArr.reduce((min, ele) => ele.startTime < min ? ele.startTime : min, workingHoursArr[0].startTime);
+                currentDayMaxTime = workingHoursArr.reduce((max, ele) => Math.max(max, ele.endTime), workingHoursArr[0].endTime);
+            } else {
+                workingHoursArr.forEach(ele => {
+                    if (dayName == ele.day) {
+                        curretnDayMinTime = ele.startTime;
+                        currentDayMaxTime = ele.endTime;
+                    }
+                });
+            }
+            if (curretnDayMinTime == '' || curretnDayMinTime == '') {
+                curretnDayMinTime = "00:00:00";
+                currentDayMaxTime = "24:00:00";
+            }
+            console.log('dayName  -- ' + dayName);
+        }
+
+        function createWholeWeekTeacherWorkingHours(teacherId) {
+            let days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+            let businessHours = [];
+            if (selectedModeView == 'Teacher') {
+                days.forEach(function (ele, index) {
+                    let result = getCurrentDayTeacherWorkingHours(ele, teacherId);
+                    // debugger;
+                    if (result.length > 0) {
+                        businessHours.push({ daysOfWeek: [index], startTime: result[0].start_time, endTime: result[0].end_time });
+                    }
+                });
+            }
+            //debugger;
+            return businessHours;
+        }
+
+        function getCurrentDayTeacherWorkingHours(dayName, teacherId) {
+            console.log('dayName  ' + dayName);
+            console.log('teacherId  ' + teacherId);
+            console.log(teacherWorkingHour);
+            return teacherWorkingHour.filter(item => {
+                if (item.id == teacherId && item.day == dayName) {
+                    return item;
+                }
+                return '';
+            });
+        }
+
+        function refreshSession() {
+            console.log(selectedViewType);
+            createResources();
+            let selectLocation = document.querySelector('.select-location').value;
+            createWorkingHours(selectLocation, true);
+            manageResourceSelectList();
+            //handleChangeCalendarDay();     
+        }
+
+        function getSearchCriteria() {
+            document.querySelectorAll('.filterBtn').forEach(ele => {
+                if (ele.classList.toString().includes('slds-button_brand')) {
+                    selectedModeView = ele.name;
+                }
+            });
+        }
+
+        function changeFilterView(event) {
+            selectedModeView = event.name;
+            document.querySelectorAll('.filterBtn').forEach(ele => {
+                ele.classList.remove('slds-button_brand');
+            });
+            event.classList.add('slds-button_brand');
+            if (selectedModeView != 'Resource') {
+                if (isModeViewChanged == true) {
+                    isModeViewChanged = false;
+                    document.querySelector('.select-res-type').disabled = true
+                    document.querySelector('.select-resource').disabled = true;
+                    handleChangeCalendarDay();
+                }
+                if (selectedModeView == 'Teacher' && selectedViewType == 'timeGridWeek') {
+                    let selectTeacher = document.querySelector('.select-teacher').value;
+                    let selectLocation = document.querySelector('.select-location').value;
+                    if (selectTeacher == 'All_Teachers' && document.querySelector('.select-teacher').length > 1) {
+                        document.querySelector('.select-teacher').value = selectTeacher = document.querySelector('.select-teacher').options[1].value;
+                    }
+                    if (selectTeacher != 'All_Teachers' && document.querySelector('.select-teacher').length > 1) {
+                        fetechSessionByWeekFromSF(selectTeacher, selectLocation);
+                    }
+                }
+                createResources();
+                createSessionAsEvents();
+                if (calendar) {
+                    calendar.destroy();
+                    refreshCalendar();
+                } else {
+                    refreshCalendar();
+                }
+            } else if (selectedModeView == 'Resource') {
+                document.querySelector('.select-res-type').disabled = false;
+                document.querySelector('.select-resource').disabled = false;
+                isModeViewChanged = true;
+                getResourcesValue();
+                createResources();
+                handleChangeCalendarDay();
+                //fetechSessionByResourceView(selectedLocation,selectedTeacher);
+            }
+        }
+        /**
+        Name        :   fetchClassDataOnCourse
+        Date        :   25 Feb 2020
+        Description :   Function is use for to get sessions records when courses is changed then get only those session records which
+        are related to classes of that course
+        Developer   : 
+        */
+        function fetchClassDataOnCourse() {
+            selectedClassValue = "";
+            selectedCourseValue = document.querySelector('.select-courses').value;
+            document.querySelector('.select-class').value = 'All_Class';
+            getSelectedClassValue();
+            handleChangeCalendarDay();
+            manageResourceSelectList();
+        }
+
+        function handleClassChange(event) {
+            console.log('event-->', event);
+            selectedClassValue = "";
+            let value = event.value;
+            if (value != 'All_Class')
+                selectedClassValue = "'" + value + "'";
+            else
+                getSelectedClassValue();
+
+            handleChangeCalendarDay();
+        }
+
+        function getSelectedClassValue() {
+            let clsData = document.querySelector('.select-class').options;
+            for (let indx of clsData) {
+                if (indx.value != 'All_Class')
+                    selectedClassValue += "'" + indx.value + "',";
+            }
+            selectedClassValue = selectedClassValue.replace(/,\s*$/, "");
+        }
+
+        function getResourcesValue() {
+            selectedResourceValue = '';
+            let resData = document.querySelector('.select-resource').options;
+            for (let indx of resData) {
+                if (indx.value != 'All_Resources')
+                    selectedResourceValue += "'" + indx.value + "',";
+            }
+            selectedResourceValue = selectedResourceValue.replace(/,\s*$/, "");
+        }
+
+        function fetchResourceDataOnType() {
+            selectedResourceType = document.querySelector('.select-res-type').value;
+            document.querySelector('.select-resource').value = 'All_Resources';
+            getResourcesValue();
+            createResources();
+            handleChangeCalendarDay();
+            manageResourceSelectList();
+        }
+
+        function handleResourcesChange(event) {
+            selectedResourceValue = "";
+            let value = event.value;
+            if (value != 'All_Resources')
+                selectedResourceValue = "'" + value + "'";
+            else
+                getResourcesValue();
+            handleChangeCalendarDay();
+        }
+
+        function getDateFromDatePicker(event) {
+            console.log('date----> ', event);
+            isComeFromDatePicker = true;
+            selectedDate = event.value;
+            getCurrentDayWorkingHours(convertDay(new Date(selectedDate).getDay()));
+            handleChangeCalendarDay();
+        }
+
+        function showConfirmationModel() {
+            document.querySelector(".confirmation-model").classList.remove('slds-hide');
+            console.log(calendarInfo);
+        }
+
+        function closeModel(event) {
+            //console.log(event);
+            if (event.name == 'cancel') {
+                if (isCalendarInRescheduleMode == false) {
+                    calendarInfo.revert();
+                } else {
+                    unactiveRescheduleMode();
+                }
+            } else if (event.name == 'this_only') {
+                if (isCalendarInRescheduleMode == true) {
+                    rescheduleDate();
+                } else {
+                    let eventId = '';
+                    let parentId = '';
+                    let startTime = createTimeFormat(calendarInfo.event.start);
+                    let currentDate = createDateFormat(calendarInfo.event.start);
+                    eventId = calendarInfo.event.id;
+                    if (calendarInfo.oldResource != null && calendarInfo.newResource != null) {
+                        parentId = calendarInfo.newResource.id;
+                    }
+                    console.log(startDate + ' - ' + endDate + ' - ' + parentId);
+                    setNewEventTimeFromSf(eventId, parentId, startTime, currentDate, false);
+                }
+            } else if (event.name == 'this_and_future') {
+                if (selectedViewType == 'resourceTimeGridDay' && isCalendarInRescheduleMode == false) {
+                    let startTime = createTimeFormat(calendarInfo.event.start);
+                    let eventId = calendarInfo.event.id;
+                    let eventDate = calendarInfo.event.start;
+                    difference_In_Days = 0;
+                    setNewDateTimeForWholeSessionFromSF(eventId, startTime, eventDate.getDay(), false);
+                    //setNewEventTimeForCurrentAndUpcomingDays(eventId, startTime);
+                } else if ((selectedViewType == 'timeGridWeek' || selectedViewType == 'dayGridMonth') && isCalendarInRescheduleMode == false) {
+                    console.log(calendarInfo);
+                    let oldDate = calendarInfo.oldEvent.start;
+                    let newDate = calendarInfo.event.start;
+                    let eventId = calendarInfo.event.id;
+                    getDayDiffernce(oldDate, newDate);
+                    let startTime = createTimeFormat(calendarInfo.event.start);
+                    let currentDate = new Date();
+                    if (currentDate.getTime() < newDate.getTime()) {
+                        setNewDateTimeForWholeSessionFromSF(eventId, startTime, oldDate.getDay(), selectedViewType == 'dayGridMonth' ? true : false);
+                    } else {
+                        document.querySelector('.invalid-date-toast').classList.remove('slds-hide');
+                        setTimeout(ele => {
+                            document.querySelector('.invalid-date-toast').classList.add('slds-hide');
+                        }, 2000);
+                        calendarInfo.revert();
+                    }
+                } else if (isCalendarInRescheduleMode == true && rescheduleModeName == 'reschedule-sessions') {
+                    let newDate = dateEvent.date;
+                    let oldDate = calendarInfo.event.start;
+                    let currentDate = new Date();
+                    let startTime = createTimeFormat(dateEvent.date);
+                    console.log('newDate ', newDate);
+                    console.log('newDate ', newDate);
+                    console.log('oldDate ', oldDate);
+                    difference_In_Days = newDate.getDate() - oldDate.getDate();
+                    if (difference_In_Days <= 7) {
+                        if (currentDate.getTime() < newDate.getTime()) {
+                            setNewDateTimeForWholeSessionFromSF(selectedSessionId, startTime, oldDate.getDay(), false);
+                        } else {
+                            document.querySelector('.invalid-date-toast').classList.remove('slds-hide');
+                            setTimeout(ele => {
+                                document.querySelector('.invalid-date-toast').classList.add('slds-hide');
+                            }, 2000);
+                            //calendarInfo.revert();     
+                        }
+                    } else {
+                        difference_In_Days = newDate.getDay() - oldDate.getDay();
+                        setNewDateTimeForWholeSessionFromSF(selectedSessionId, startTime, oldDate.getDay(), false);
+                    }
+                    unactiveRescheduleMode();
+                } else if (isCalendarInRescheduleMode == true && rescheduleModeName == 'reschedule-student') {
+                    let currentDate = new Date();
+                    let newDate = calendarInfo.event.start;
+                    if (currentDate.getTime() < newDate.getTime()) {
+                        rescheduleAllStudentResourceForSession(oldCalendarInfoForStudent.event.start.getDay(), calendarInfo.event.start.getDay());
+                    } else {
+                        document.querySelector('.invalid-date-toast').classList.remove('slds-hide');
+                        setTimeout(ele => {
+                            document.querySelector('.invalid-date-toast').classList.add('slds-hide');
+                        }, 2000);
+                    }
+                    console.log(calendarInfo);
+                    console.log(oldCalendarInfoForStudent);
+                    alert('robots are buliding this logic');
+                    unactiveRescheduleMode();
+                }
+            }
+            document.querySelector(".confirmation-model").classList.add('slds-hide');
+        }
+
+        function showSessionDetailModal() {
+            let sessionEventId = calendarInfo.event.id;
+            document.querySelector(".session-action").classList.remove('slds-hide');
+            getSessionDeatilFromSF(sessionEventId);
+        }
+
+        function closeSessionDetailModal() {
+            document.querySelector(".session-action").classList.add('slds-hide');
+        }
+
+        function manageResourceSelectList() {
+            if (selectedModeView == 'Resource') {
+                document.querySelector('.select-res-type').disabled = false;
+                document.querySelector('.select-resource').disabled = false;
+            } else {
+                document.querySelector('.select-res-type').disabled = true;
+                document.querySelector('.select-resource').disabled = true;
+            }
+        }
+
+        function handleEventClick() {
+            if (isCalendarInRescheduleMode == true && rescheduleModeName == 'reschedule-student') {
+                let newSessionId = calendarInfo.event.id;
+                console.log('newSessionId  ', newSessionId);
+                if (calendarInfo.event.extendedProps.class == selectedStudentClassId) {
+                    let result = checkStudentResourceIsExistFormSF(newSessionId)
+                    if (!result) {
+                        document.querySelector(".confirmation-model").classList.remove('slds-hide');
+                    } else {
+                        document.querySelector('.invalid-date-toast').classList.remove('slds-hide');
+                        document.querySelector('.toast-contain').innerText = "Student already schedule for this session";
+                        setTimeout(ele => {
+                            document.querySelector('.invalid-date-toast').classList.add('slds-hide');
+                            document.querySelector('.toast-contain').innerText = "Please select future date and time.";
+                        }, 2000);
+                    }
+                } else {
+                    document.querySelector('.invalid-date-toast').classList.remove('slds-hide');
+                    document.querySelector('.toast-contain').innerText = "You can't select different class";
+                    setTimeout(ele => {
+                        document.querySelector('.invalid-date-toast').classList.add('slds-hide');
+                        document.querySelector('.toast-contain').innerText = "Please select future date and time.";
+                    }, 2000);
+                }
+            }
+
+        }
+
+        function rescheduleDate() {
+            console.log('isCalendarInRescheduleMode ->', isCalendarInRescheduleMode);
+            console.log('rescheduleModeName ->', rescheduleModeName);
+            if (isCalendarInRescheduleMode == true && rescheduleModeName == 'reschedule-sessions') {
+                console.log(dateEvent);
+                startTime = createTimeFormat(dateEvent.date);
+                currentDate = createDateFormat(dateEvent.date);
+                console.log(startTime + ' - ' + currentDate + ' - ' + selectedSessionId);
+                document.querySelector(".confirmation-model").classList.remove('slds-hide');
+                setNewEventTimeFromSf(selectedSessionId, '', startTime, currentDate, true);
+            } else if (isCalendarInRescheduleMode == true && rescheduleModeName == 'reschedule-student') {
+                let newSessionId = calendarInfo.event.id;
+                document.querySelector(".confirmation-model").classList.remove('slds-hide');
+                setNewSessionForStudentFromSF(newSessionId);
+            }
+            unactiveRescheduleMode();
+        }
+
+        function unactiveRescheduleMode() {
+            isCalendarInRescheduleMode = false;
+            rescheduleModeName = '';
+            document.querySelector('.slds-alert-date-time').classList.add('slds-hide');
+        }
+
+        function getDayDiffernce(oldDate, newDate) {
+            var difference_In_Time = newDate.getTime() - oldDate.getTime();
+
+            // To calculate the no. of days between two dates
+            difference_In_Days = Math.floor(difference_In_Time / (1000 * 3600 * 24));
+        }
+
+        function isEventInWorkingHours() {
+            console.log('newEvnt--> ', calendarInfo);
+            let newStartTime = '';
+            let newEndTIme = '';
+            let day = calendarInfo.event.start.getDay();
+            let teacherId = calendarInfo.event.extendedProps.teacher;
+            teacherWorkingHour.forEach(ele => {
+                if (ele.id == teacherId && ele.day == convertDay(day)) {
+                    console.log(ele.start_time);
+                    console.log(ele.end_time);
+                }
+            });
+        }
+
+    </script>
+
+</apex:component>
