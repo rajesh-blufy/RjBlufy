@@ -1,5 +1,5 @@
 /*
-Name: NewEnrollmentFormCnt
+Name: NewEnrollmentFormCntrl
 Date: 30th Jan 2020
 Author: 
 Description: This controller is used create new enrollments 
